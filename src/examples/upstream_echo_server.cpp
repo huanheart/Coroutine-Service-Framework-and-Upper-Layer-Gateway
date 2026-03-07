@@ -51,7 +51,7 @@ public:
 int main() {
     sylar::IOManager manager(4, true);
     manager.scheduleLock([&]() {
-        std::vector<std::string> ports = {"8000", "8001", "8002", "8080", "9000"};
+        std::vector<std::string> ports = {"8001", "8002"};
         std::vector<std::shared_ptr<UpstreamEchoServer>> servers;
         for (auto& p : ports) {
             sylar::Address::ptr addr = sylar::Address::LookupAnyIPAddress("0.0.0.0:" + p);
