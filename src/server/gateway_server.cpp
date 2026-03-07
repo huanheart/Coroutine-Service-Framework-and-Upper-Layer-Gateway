@@ -6,6 +6,7 @@
 #include "../gateway/gateway_filter_chain.h"
 #include "../gateway/gateway_metrics.h"
 #include "../gateway/gateway_config.h"
+#include "../gateway/gateway_health.h"
 #include "gateway_conn.h"
 #include <muduo/base/Logging.h>
 #include <unistd.h>
@@ -28,9 +29,28 @@ gateway_server::gateway_server(sylar::IOManager* worker,
         GatewayConfig::instance().set_config_path("../conf/gateway.conf");
         GatewayConfig::instance().load_from_file("../conf/gateway.conf");
     }
+    GatewayHealthManager::instance().start();
+    sylar::IOManager* scheduler = sylar::IOManager::GetThis();
+    if (scheduler) {
+        int prune_interval = GatewayConfig::instance().idle_disconnect_ms() / 2;
+        if (prune_interval <= 0) prune_interval = 1000;
+        m_idle_prune_timer = scheduler->addTimer(prune_interval, []() {
+            if (!g_conns) return;
+            for (int i = 0; i < GW_MAX_FD; ++i) {
+                g_conns[i].prune_idle_upstreams();
+            }
+        }, true);
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway global idle prune started interval_ms=" << prune_interval;
+        }
+    }
 }
 
 gateway_server::~gateway_server() {
+    if (m_idle_prune_timer) {
+        m_idle_prune_timer->cancel();
+        m_idle_prune_timer.reset();
+    }
 }
 
 void gateway_server::handleClient(sylar::Socket::ptr client) {

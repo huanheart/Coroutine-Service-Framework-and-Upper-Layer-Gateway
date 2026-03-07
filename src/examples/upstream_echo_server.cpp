@@ -5,6 +5,8 @@
 #include <string>
 #include <iostream>
 #include <muduo/base/Logging.h>
+#include <atomic>
+#include <chrono>
 
 class UpstreamEchoServer : public sylar::TcpServer {
 public:
@@ -12,6 +14,8 @@ public:
                        sylar::IOManager* io_worker = sylar::IOManager::GetThis(),
                        sylar::IOManager* accept_worker = sylar::IOManager::GetThis())
         : sylar::TcpServer(worker, io_worker, accept_worker) {}
+private:
+    std::atomic<uint64_t> m_last_activity_ms{0};
 
     void handleClient(std::shared_ptr<sylar::Socket> client) override {
         char buf[4096];
@@ -44,11 +48,14 @@ public:
             }
             LOG_INFO << "upstream " << local_str << " request " << method << " " << path << " " << version;
             if (method == "HEAD") {
-                std::string headers = version + " 200 OK\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n";
+                uint64_t last = m_last_activity_ms.load(std::memory_order_relaxed);
+                std::string headers = version + " 200 OK\r\nConnection: keep-alive\r\nX-Last-Activity: " + std::to_string(last) + "\r\nContent-Length: 0\r\n\r\n";
                 client->send(headers.data(), headers.size(), 0);
                 LOG_INFO << "upstream " << local_str << " head ok keep-alive";
                 continue;
             }
+            m_last_activity_ms.store((uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()),
+                                     std::memory_order_relaxed);
             std::string body = "echo " + path + "\n";
             std::string headers = version + " 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n";
             std::string data = headers + body;
@@ -63,7 +70,7 @@ public:
 int main() {
     sylar::IOManager manager(4, true);
     manager.scheduleLock([&]() {
-        std::vector<std::string> ports = {"8001", "8002"};
+        std::vector<std::string> ports = {"8001", "8002","9000","8080"};
         std::vector<std::shared_ptr<UpstreamEchoServer>> servers;
         for (auto& p : ports) {
             sylar::Address::ptr addr = sylar::Address::LookupAnyIPAddress("0.0.0.0:" + p);

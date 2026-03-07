@@ -16,6 +16,7 @@ static constexpr const char* CFG_TIMEOUT_RECV_MS = "timeout_recv_ms";
 static constexpr const char* CFG_HEARTBEAT_INTERVAL_MS = "heartbeat_interval_ms";
 static constexpr const char* CFG_HEARTBEAT_PATH = "heartbeat_path";
 static constexpr const char* CFG_ENABLE_HEARTBEAT = "enable_heartbeat";
+static constexpr const char* CFG_IDLE_DISCONNECT_MS = "idle_disconnect_ms";
 static constexpr const char* CFG_JWT_ENABLED = "jwt_enabled";
 static constexpr const char* CFG_JWT_SECRET = "jwt_secret";
 static constexpr const char* CFG_JWT_ISSUER = "jwt_issuer";

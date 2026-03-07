@@ -6,6 +6,7 @@
 #include "../gateway/gateway_metrics.h"
 #include "../gateway/gateway_router.h"
 #include "../gateway/gateway_config.h"
+#include "../gateway/gateway_health.h"
 #include "../util/gateway_constants.h"
 #include <muduo/base/Logging.h>
 #include "../util/config.h"
@@ -17,9 +18,45 @@ void gateway_conn::init(sylar::Socket::ptr& client) {
     m_read_idx = 0;
     m_request.clear();
     m_content_length = 0;
-    m_upstreams.clear();
+    if (!m_upstreams.empty()) {
+        for (auto& kv : m_upstreams) {
+            auto& ent = kv.second;
+            if (ent.sock && ent.sock->isConnected()) {
+                ent.sock->close();
+            }
+        }
+        m_upstreams.clear();
+    }
     m_oversize = false;
     m_curr_upstream_key.clear();
+}
+
+static inline uint64_t now_ms() {
+    return (uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+void gateway_conn::prune_idle_entry(const std::string& key, gateway_conn::UpstreamEntry& ent) {
+    if (!ent.sock) return;
+    if (!ent.sock->isConnected()) return;
+    if (ent.busy) return;
+    int idle_ms = GatewayConfig::instance().idle_disconnect_ms();
+    uint64_t now = now_ms();
+    if (idle_ms <= 0) return;
+    uint64_t last_used = ent.last_used_ms;
+    uint64_t last_activity = GatewayHealthManager::instance().last_activity_ms(key);
+    bool local_idle = (last_used > 0) && (now > last_used) && (now - last_used >= (uint64_t)idle_ms);
+    bool remote_idle = (last_activity > 0) && (now > last_activity) && (now - last_activity >= (uint64_t)idle_ms);
+    if (local_idle || remote_idle) {
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway idle disconnect upstream " << key
+                     << " local_idle=" << local_idle
+                     << " remote_idle=" << remote_idle
+                     << " idle_ms=" << idle_ms
+                     << " last_used_ms=" << last_used
+                     << " last_activity_ms=" << last_activity;
+        }
+        ent.sock->close();
+    }
 }
 
 bool gateway_conn::read_once() {
@@ -129,6 +166,7 @@ void gateway_conn::send_simple_response(int status, const string& status_text, c
 }
 
 sylar::Socket::ptr gateway_conn::get_upstream_socket(const std::string& path) {
+    prune_idle_upstreams();
     sylar::Address::ptr addr = GatewayRouter::pick_upstream(path);
     if (!addr) {
         return nullptr;
@@ -142,7 +180,7 @@ sylar::Socket::ptr gateway_conn::get_upstream_socket(const std::string& path) {
         auto& ent = it->second;
         if (ent.sock && ent.sock->isConnected()) {
             m_curr_upstream_key = key;
-            ent.last_used_ms = (uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+            ent.last_used_ms = now_ms();
             return ent.sock;
         }
     }
@@ -163,91 +201,21 @@ sylar::Socket::ptr gateway_conn::get_upstream_socket(const std::string& path) {
     sock->setOption(SOL_SOCKET, SO_KEEPALIVE, on);
     UpstreamEntry ent;
     ent.sock = sock;
-    ent.last_used_ms = (uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+    ent.last_used_ms = now_ms();
     m_upstreams[key] = ent;
     m_curr_upstream_key = key;
-    if (GatewayConfig::instance().heartbeat_enabled()) {
-        start_heartbeat(key);
-    }
     return sock;
 }
 
-void gateway_conn::start_heartbeat(const std::string& key) {
-    auto it = m_upstreams.find(key);
-    if (it == m_upstreams.end()) return;
-    auto& ent = it->second;
-    int interval = GatewayConfig::instance().heartbeat_interval_ms();
-    if (interval <= 0) return;
-    std::string path = GatewayConfig::instance().heartbeat_path();
-    auto scheduler = sylar::IOManager::GetThis();
-    if (!scheduler) return;
-    if (Config::get_instance()->get_close_log() == 0) {
-        LOG_INFO << "gateway heartbeat schedule key=" << key << " interval_ms=" << interval << " path=" << (path.empty() ? "/" : path);
+void gateway_conn::prune_idle_upstreams() {
+    for (auto it = m_upstreams.begin(); it != m_upstreams.end(); ) {
+        prune_idle_entry(it->first, it->second);
+        if (!it->second.sock || !it->second.sock->isConnected()) {
+            it = m_upstreams.erase(it);
+        } else {
+            ++it;
+        }
     }
-    auto self = this;
-    ent.timer = scheduler->addTimer(interval, [self, key, path]() {
-        auto it2 = self->m_upstreams.find(key);
-        if (it2 == self->m_upstreams.end()) {
-            if (Config::get_instance()->get_close_log() == 0) {
-                LOG_INFO << "gateway heartbeat skip key=" << key << " reason=no_entry";
-            }
-            self->start_heartbeat(key);
-            return;
-        }
-        auto& e = it2->second;
-        if (!e.sock || !e.sock->isConnected()) {
-            if (Config::get_instance()->get_close_log() == 0) {
-                LOG_INFO << "gateway heartbeat skip key=" << key << " reason=not_connected";
-            }
-            self->start_heartbeat(key);
-            return;
-        }
-        if (e.busy) {
-            if (Config::get_instance()->get_close_log() == 0) {
-                LOG_INFO << "gateway heartbeat skip key=" << key << " reason=busy";
-            }
-            self->start_heartbeat(key);
-            return;
-        }
-        uint64_t now = (uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
-        if (now - e.last_used_ms < (uint64_t)GatewayConfig::instance().heartbeat_interval_ms()) {
-            if (Config::get_instance()->get_close_log() == 0) {
-                LOG_INFO << "gateway heartbeat skip key=" << key << " reason=recently_used";
-            }
-            self->start_heartbeat(key);
-            return;
-        }
-        std::string hb = "HEAD " + (path.empty() ? std::string("/") : path) + " HTTP/1.1\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n";
-        if (Config::get_instance()->get_close_log() == 0) {
-            LOG_INFO << "gateway heartbeat send key=" << key << " path=" << (path.empty() ? "/" : path);
-        }
-        e.busy = true;
-        const char* data = hb.data();
-        size_t left = hb.size();
-        while (left > 0) {
-            int n = e.sock->send(data, left, 0);
-            if (n <= 0) {
-                if (Config::get_instance()->get_close_log() == 0) {
-                    LOG_INFO << "gateway heartbeat send failed key=" << key;
-                }
-                e.sock->close();
-                e.busy = false;
-                self->start_heartbeat(key);
-                return;
-            }
-            data += n;
-            left -= n;
-        }
-        char buf[256];
-        int n = e.sock->recv(buf, sizeof(buf), 0);
-        if (Config::get_instance()->get_close_log() == 0) {
-            LOG_INFO << "gateway heartbeat recv key=" << key << " bytes=" << n;
-        }
-        e.busy = false;
-        e.last_used_ms = now;
-        // reschedule next heartbeat
-        self->start_heartbeat(key);
-    });
 }
 
 bool gateway_conn::process() {
@@ -268,6 +236,7 @@ bool gateway_conn::process() {
     if (Config::get_instance()->get_close_log() == 0) {
         LOG_INFO << "gateway request " << method << " " << path << " " << version;
     }
+    prune_idle_upstreams();
     if (path.rfind(GatewayConst::ADMIN_METRICS_PATH, 0) == 0) {
         string body = GatewayMetrics::instance().render_plain();
         if (Config::get_instance()->get_close_log() == 0) {
@@ -295,6 +264,9 @@ bool gateway_conn::process() {
 
     if (m_oversize) {
         send_simple_response(GatewayConst::HttpStatus::PAYLOAD_TOO_LARGE, GatewayConst::status_text(GatewayConst::HttpStatus::PAYLOAD_TOO_LARGE), "body too large\n");
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway recevie too large message";
+        }
         return false;
     }
 
@@ -337,7 +309,7 @@ bool gateway_conn::process() {
         auto it = m_upstreams.find(m_curr_upstream_key);
         if (it != m_upstreams.end()) {
             it->second.busy = true;
-            it->second.last_used_ms = (uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+            it->second.last_used_ms = now_ms();
         }
         const char* buf = request.data();
         size_t left = request.size();
@@ -382,7 +354,7 @@ bool gateway_conn::process() {
         auto it = m_upstreams.find(m_curr_upstream_key);
         if (it != m_upstreams.end()) {
             it->second.busy = false;
-            it->second.last_used_ms = (uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+            it->second.last_used_ms = now_ms();
         }
     }
     if (Config::get_instance()->get_close_log() == 0) {

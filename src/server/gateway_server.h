@@ -4,6 +4,7 @@
 #include <string>
 #include "tcp_server.h"
 #include "../util/socket.h"
+#include "../CoroutineLibrary/ioscheduler.h"
 
 class gateway_server : public sylar::TcpServer {
 public:
@@ -13,7 +14,8 @@ public:
     ~gateway_server();
 
     void handleClient(std::shared_ptr<sylar::Socket> client) override;
+private:
+    std::shared_ptr<sylar::Timer> m_idle_prune_timer;
 };
 
 #endif
-

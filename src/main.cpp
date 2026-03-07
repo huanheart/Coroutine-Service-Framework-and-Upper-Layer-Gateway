@@ -25,7 +25,7 @@ void asyncOutput(const char * msg,int len)
 }
 
 
-void run(int port,int proxy)
+void run(int port)
 {
 
     sylar::Address::ptr m_adress=sylar::Address::LookupAnyIPAddress("0.0.0.0:"+to_string(port) );
@@ -63,7 +63,7 @@ int main(int argc,char * argv[] )
     // worker.reset(new sylar::IOManager(1,false) );
     sylar::IOManager manager(Config::get_instance()->get_thread_num(),true);
     manager.scheduleLock([=]() {
-        run(Config::get_instance()->get_port(), Config::get_instance()->get_proxy());
+        run(Config::get_instance()->get_port());
     });
 
     return 0;

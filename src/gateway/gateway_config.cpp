@@ -63,6 +63,10 @@ bool GatewayConfig::heartbeat_enabled() const {
     return m_heartbeat_enabled;
 }
 
+int GatewayConfig::idle_disconnect_ms() const {
+    return m_idle_disconnect_ms;
+}
+
 void GatewayConfig::set_config_path(const std::string& p) {
     std::lock_guard<std::mutex> lg(m_mutex);
     m_config_path = p;
@@ -132,6 +136,7 @@ bool GatewayConfig::load_from_file(const std::string& path) {
     int heartbeat_interval = m_heartbeat_interval;
     std::string heartbeat_path = m_heartbeat_path;
     bool heartbeat_enabled = m_heartbeat_enabled;
+    int idle_disconnect_ms = m_idle_disconnect_ms;
     bool jwt_enabled = m_jwt_enabled;
     std::string jwt_secret = m_jwt_secret;
     std::string jwt_issuer = m_jwt_issuer;
@@ -243,6 +248,12 @@ bool GatewayConfig::load_from_file(const std::string& path) {
             std::string v;
             ss >> v;
             heartbeat_enabled = (v == "on" || v == "true" || v == "1");
+        } else if (type == GatewayConst::CFG_IDLE_DISCONNECT_MS) {
+            int v = 0;
+            ss >> v;
+            if (v > 0) {
+                idle_disconnect_ms = v;
+            }
         } else if (type == GatewayConst::CFG_JWT_ENABLED) {
             std::string v;
             ss >> v;
@@ -314,6 +325,7 @@ bool GatewayConfig::load_from_file(const std::string& path) {
         m_heartbeat_interval = heartbeat_interval;
         m_heartbeat_path = heartbeat_path;
         m_heartbeat_enabled = heartbeat_enabled;
+        m_idle_disconnect_ms = idle_disconnect_ms;
         m_jwt_enabled = jwt_enabled;
         m_jwt_secret = jwt_secret;
         m_jwt_issuer = jwt_issuer;

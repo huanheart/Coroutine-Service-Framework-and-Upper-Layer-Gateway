@@ -16,12 +16,12 @@ public:
     void init(sylar::Socket::ptr& client);
     bool read_once();
     bool process();
+    void prune_idle_upstreams();
 
 private:
     bool parse_request_line(const std::string& request, std::string& method, std::string& path, std::string& version);
     void send_simple_response(int status, const std::string& status_text, const std::string& body);
     sylar::Socket::ptr get_upstream_socket(const std::string& path);
-    void start_heartbeat(const std::string& key);
 
 private:
     sylar::Socket::ptr m_client;
@@ -31,10 +31,10 @@ private:
     long m_content_length = 0;
     struct UpstreamEntry {
         sylar::Socket::ptr sock;
-        std::shared_ptr<sylar::Timer> timer;
         bool busy = false;
         uint64_t last_used_ms = 0;
     };
+    void prune_idle_entry(const std::string& key, UpstreamEntry& ent);
     std::unordered_map<std::string, UpstreamEntry> m_upstreams;
     std::string m_curr_upstream_key;
     bool m_oversize = false;
