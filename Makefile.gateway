@@ -1,0 +1,37 @@
+# 编译器和编译选项
+CXX = g++
+CXXFLAGS = -g -O0  -I/usr/local/muduo/include
+
+# 库路径
+LIBS = -lssl -lcrypto -lpthread -lmuduo_base
+
+# 源文件和目标文件
+src_dirs := src src/CoroutineLibrary src/server src/util src/gateway
+objects := $(patsubst %.cpp, build/%.o, $(wildcard $(foreach dir, $(src_dirs), $(dir)/*.cpp))) \
+           $(patsubst %.cc, build/%.o, $(wildcard $(foreach dir, $(src_dirs), $(dir)/*.cc)))
+objects_no_main := $(filter-out build/src/main.o, $(objects))
+
+# 默认目标：构建 GatewayServer
+gateway: $(objects)
+	$(CXX) $(CXXFLAGS) -o bin/GatewayServer $(objects) $(LIBS)
+
+# 示例上游服务
+upstreams: $(objects_no_main)
+	$(CXX) $(CXXFLAGS) -o bin/UpstreamEchoServers src/examples/upstream_echo_server.cpp $(objects_no_main) $(LIBS)
+
+# 冒烟客户端
+smoke: $(objects_no_main)
+	$(CXX) $(CXXFLAGS) -o bin/GatewaySmokeClient src/examples/gateway_smoke_client.cpp $(objects_no_main) $(LIBS)
+
+# 规则：自动创建 build 目录并保留子目录结构
+build/%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+build/%.o: %.cc
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# 清理目标文件
+.PHONY: clean
+clean:
+	rm -f bin/GatewayServer $(objects)
+	rm -f build/**/*.o
