@@ -7,6 +7,8 @@
 #include "../gateway/gateway_router.h"
 #include "../gateway/gateway_config.h"
 #include "../util/gateway_constants.h"
+#include <muduo/base/Logging.h>
+#include "../util/config.h"
 
 using namespace std;
 
@@ -40,6 +42,9 @@ bool gateway_conn::read_once() {
             return false;
         }
     }
+    if (Config::get_instance()->get_close_log() == 0) {
+        LOG_INFO << "gateway headers received size=" << m_request.size();
+    }
     // parse content-length if present
     m_content_length = 0;
     {
@@ -58,10 +63,16 @@ bool gateway_conn::read_once() {
             }
         }
     }
+    if (Config::get_instance()->get_close_log() == 0) {
+        LOG_INFO << "gateway content-length=" << m_content_length;
+    }
     {
         int64_t max_body = GatewayConfig::instance().max_body_size();
         if (m_content_length > 0 && (int64_t)m_content_length > max_body) {
             m_oversize = true;
+            if (Config::get_instance()->get_close_log() == 0) {
+                LOG_INFO << "gateway body oversize len=" << m_content_length << " max=" << max_body;
+            }
             return true;
         }
     }
@@ -123,6 +134,9 @@ sylar::Socket::ptr gateway_conn::get_upstream_socket(const std::string& path) {
         return nullptr;
     }
     std::string key = addr->toString();
+    if (Config::get_instance()->get_close_log() == 0) {
+        LOG_INFO << "route select upstream " << key << " for path " << path;
+    }
     auto it = m_upstreams.find(key);
     if (it != m_upstreams.end()) {
         auto& ent = it->second;
@@ -209,11 +223,20 @@ bool gateway_conn::process() {
 
     string method, path, version;
     if (!parse_request_line(request, method, path, version)) {
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway bad request line";
+        }
         send_simple_response(GatewayConst::HttpStatus::BAD_REQUEST, GatewayConst::status_text(GatewayConst::HttpStatus::BAD_REQUEST), "invalid request line\n");
         return false;
     }
+    if (Config::get_instance()->get_close_log() == 0) {
+        LOG_INFO << "gateway request " << method << " " << path << " " << version;
+    }
     if (path.rfind(GatewayConst::ADMIN_METRICS_PATH, 0) == 0) {
         string body = GatewayMetrics::instance().render_plain();
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway admin metrics";
+        }
         send_simple_response(GatewayConst::HttpStatus::OK, GatewayConst::status_text(GatewayConst::HttpStatus::OK), body);
         return false;
     }
@@ -221,8 +244,14 @@ bool gateway_conn::process() {
     if (path.rfind(GatewayConst::ADMIN_RELOAD_PATH, 0) == 0) {
         bool ok = GatewayConfig::instance().reload();
         if (ok) {
+            if (Config::get_instance()->get_close_log() == 0) {
+                LOG_INFO << "gateway admin reload ok";
+            }
             send_simple_response(GatewayConst::HttpStatus::OK, GatewayConst::status_text(GatewayConst::HttpStatus::OK), "reload ok\n");
         } else {
+            if (Config::get_instance()->get_close_log() == 0) {
+                LOG_INFO << "gateway admin reload failed";
+            }
             send_simple_response(GatewayConst::HttpStatus::INTERNAL_ERROR, GatewayConst::status_text(GatewayConst::HttpStatus::INTERNAL_ERROR), "reload failed\n");
         }
         return false;
@@ -252,12 +281,18 @@ bool gateway_conn::process() {
         if (filter_body.empty()) {
             filter_body = "forbidden\n";
         }
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway filter reject status=" << status;
+        }
         send_simple_response(status, text, filter_body);
         return false;
     }
 
     sylar::Socket::ptr upstream = get_upstream_socket(path);
     if (!upstream) {
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway no upstream available";
+        }
         send_simple_response(GatewayConst::HttpStatus::BAD_GATEWAY, GatewayConst::status_text(GatewayConst::HttpStatus::BAD_GATEWAY), "no upstream available\n");
         return false;
     }
@@ -270,6 +305,7 @@ bool gateway_conn::process() {
         }
         const char* buf = request.data();
         size_t left = request.size();
+        size_t total = 0;
         while (left > 0) {
             int n = upstream->send(buf, left, 0);
             if (n <= 0) {
@@ -279,15 +315,22 @@ bool gateway_conn::process() {
             }
             buf += n;
             left -= n;
+            total += n;
+        }
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway forwarded request bytes=" << total;
         }
     }
 
     char buf[4096];
+    size_t total_up = 0;
+    size_t total_down = 0;
     while (true) {
         int n = upstream->recv(buf, sizeof(buf), 0);
         if (n <= 0) {
             break;
         }
+        total_up += n;
         int sent = 0;
         while (sent < n) {
             int s = m_client->send(buf + sent, n - sent, 0);
@@ -295,6 +338,7 @@ bool gateway_conn::process() {
                 return false;
             }
             sent += s;
+            total_down += s;
         }
     }
 
@@ -304,6 +348,9 @@ bool gateway_conn::process() {
             it->second.busy = false;
             it->second.last_used_ms = (uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
         }
+    }
+    if (Config::get_instance()->get_close_log() == 0) {
+        LOG_INFO << "gateway upstream recv bytes=" << total_up << " client send bytes=" << total_down;
     }
     return false;
 }

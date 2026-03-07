@@ -8,9 +8,9 @@
 
 GatewayConfig& GatewayConfig::instance() {
     static GatewayConfig cfg;
-    if (!cfg.m_inited) {
-        throw std::runtime_error("GatewayConfig not inited");
-    }
+    // if (!cfg.m_inited) {
+    //     throw std::runtime_error("GatewayConfig not inited");
+    // }
     return cfg;
 }
 

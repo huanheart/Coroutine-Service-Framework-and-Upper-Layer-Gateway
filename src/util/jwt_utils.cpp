@@ -2,6 +2,7 @@
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
 #include <openssl/buffer.h>
+#include <cstring>
 #include <vector>
 #include <chrono>
 

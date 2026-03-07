@@ -504,9 +504,15 @@ int fcntl(int fd, int cmd, ... /* arg */ )
         case F_DUPFD_CLOEXEC:
         case F_SETFD:
         case F_SETOWN:
+#ifdef F_SETSIG
         case F_SETSIG:
+#endif
+#ifdef F_SETLEASE
         case F_SETLEASE:
+#endif
+#ifdef F_NOTIFY
         case F_NOTIFY:
+#endif
 #ifdef F_SETPIPE_SZ
         case F_SETPIPE_SZ:
 #endif
@@ -520,8 +526,12 @@ int fcntl(int fd, int cmd, ... /* arg */ )
 
         case F_GETFD:
         case F_GETOWN:
+#ifdef F_GETSIG
         case F_GETSIG:
+#endif
+#ifdef F_GETLEASE
         case F_GETLEASE:
+#endif
 #ifdef F_GETPIPE_SZ
         case F_GETPIPE_SZ:
 #endif
@@ -541,14 +551,21 @@ int fcntl(int fd, int cmd, ... /* arg */ )
             }
             break;
 
+        
+#if defined(F_GETOWN_EX) || defined(F_SETOWN_EX)
+#ifdef F_GETOWN_EX
         case F_GETOWN_EX:
+#endif
+#ifdef F_SETOWN_EX
         case F_SETOWN_EX:
+#endif
             {
-                struct f_owner_exlock* arg = va_arg(va, struct f_owner_exlock*);
+                void* arg = va_arg(va, void*);
                 va_end(va);
                 return fcntl_f(fd, cmd, arg);
             }
             break;
+#endif
 
         default:
             va_end(va);

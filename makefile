@@ -1,74 +1,70 @@
-# 编译器和编译选项
-CXX = g++
-CXXFLAGS = -g -O0  -I/usr/local/muduo/include
+CXX := g++
 
-# 库路径
-LIBS = -lssl -lcrypto -lpthread -lmuduo_base
+MUDUO := /usr/local/build/release-install-cpp11
 
-# 源文件和目标文件
-#objects = src/main.o  src/cglmysql/sql_connection_pool.o  src/CoroutineLibrary/fd_manager.o  src/CoroutineLibrary/fiber.o  src/CoroutineLibrary/hook.o   src/CoroutineLibrary/timer.o  src/CoroutineLibrary/scheduler.o  src/CoroutineLibrary/ioscheduler.o  src/CoroutineLibrary/thread.o  src/server/tcp_server.o  src/server/http_server.o  src/server/http_conn.o     src/util/address.o  src/util/config.o  src/util/socket.o
-src_dirs := src src/CoroutineLibrary src/server src/util src/gateway
-#foreaach遍历每一个src指定子集目录下的.cc以及.cpp文件，并将.o文件重定向输出到build
-objects := $(patsubst %.cpp, build/%.o, $(wildcard $(foreach dir, $(src_dirs), $(dir)/*.cpp))) \
-           $(patsubst %.cc, build/%.o, $(wildcard $(foreach dir, $(src_dirs), $(dir)/*.cc)))
-# 最终目标文件
-edit: $(objects)
-	$(CXX) $(CXXFLAGS) -o bin/CoroutineServer $(objects) $(LIBS)
+CXXFLAGS := -g -O0 -std=c++17 -D_XOPEN_SOURCE=700 -I$(MUDUO)/include
+LDFLAGS := -L$(MUDUO)/lib
+LIBS := -lmuduo_net -lmuduo_base -lssl -lcrypto -lpthread
 
-# 自动创建 build 目录，并保留子目录结构
-build/%.o: %.cpp
+SRC_DIRS := src src/CoroutineLibrary src/server src/util src/gateway
+
+BIN_DIR := bin
+BUILD_DIR := build
+
+SRCS := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.cpp)) \
+        $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.cc))
+
+OBJS := $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(filter %.cpp,$(SRCS))) \
+        $(patsubst %.cc,$(BUILD_DIR)/%.o,$(filter %.cc,$(SRCS)))
+
+OBJS_NO_MAIN := $(filter-out $(BUILD_DIR)/src/main.o,$(OBJS))
+
+COROUTINE_SERVER := $(BIN_DIR)/CoroutineServer
+GATEWAY_SERVER := $(BIN_DIR)/GatewayServer
+UPSTREAM_SERVER := $(BIN_DIR)/UpstreamEchoServers
+SMOKE_CLIENT := $(BIN_DIR)/GatewaySmokeClient
+
+all: $(COROUTINE_SERVER) $(GATEWAY_SERVER) $(UPSTREAM_SERVER) $(SMOKE_CLIENT)
+
+$(COROUTINE_SERVER): $(OBJS)
+	mkdir -p $(BIN_DIR)
+	$(CXX) $^ $(LDFLAGS) $(LIBS) -o $@
+
+$(GATEWAY_SERVER): $(OBJS)
+	mkdir -p $(BIN_DIR)
+	$(CXX) $^ $(LDFLAGS) $(LIBS) -o $@
+
+$(UPSTREAM_SERVER): $(OBJS_NO_MAIN)
+	mkdir -p $(BIN_DIR)
+	$(CXX) src/examples/upstream_echo_server.cpp $^ $(LDFLAGS) $(LIBS) -o $@
+
+$(SMOKE_CLIENT): $(OBJS_NO_MAIN)
+	mkdir -p $(BIN_DIR)
+	$(CXX) src/examples/gateway_smoke_client.cpp $^ $(LDFLAGS) $(LIBS) -o $@
+
+$(BUILD_DIR)/%.o: %.cpp
+	mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-build/%.o: %.cc
+$(BUILD_DIR)/%.o: %.cc
+	mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+.PHONY: run-gateway run-upstreams run-smoke run-all
 
-main.o :   src/util/config.h
-	$(CXX) $(CXXFLAGS) -c  src/main.cpp
+run-gateway: $(GATEWAY_SERVER)
+	cd $(BIN_DIR) && ./GatewayServer -p 9006 -t 8 -n 0
 
-fd_manager.o : src/CoroutineLibrary/thread.h
-	$(CXX) $(CXXFLAGS) -c src/CoroutineLibrary/fd_manager.cpp
+run-upstreams: $(UPSTREAM_SERVER)
+	cd $(BIN_DIR) && ./UpstreamEchoServers
 
-fiber.o :
-	$(CXX) $(CXXFLAGS) -c src/CoroutineLibrary/fiber.cpp
+run-smoke: $(SMOKE_CLIENT)
+	cd $(BIN_DIR) && ./GatewaySmokeClient 127.0.0.1:9006 ../conf/gateway.conf
 
-hook.o :
-	$(CXX) $(CXXFLAGS) -c src/CoroutineLibrary/hook.cpp
+run-all: run-upstreams run-gateway
+	$(MAKE) run-smoke
 
-scheduler.o : src/CoroutineLibrary/hook.h  src/CoroutineLibrary/fiber.h  src/CoroutineLibrary/thread.h
-	$(CXX) $(CXXFLAGS) -c src/CoroutineLibrary/scheduler.cpp
-
-timer.o :
-	$(CXX) $(CXXFLAGS) -c src/CoroutineLibrary/timer.cpp
-
-ioscheduler.o : src/CoroutineLibrary/timer.h  src/CoroutineLibrary/scheduler.h  src/CoroutineLibrary/ioscheduler.h
-	$(CXX) $(CXXFLAGS) -c  src/CoroutineLibrary/ioscheduler.cpp
-
-
-
-thread.o :
-	$(CXX) $(CXXFLAGS) -c  src/CoroutineLibrary/thread.cpp
-tcp_server.o :    src/server/tcp_server.h  src/util/socket.h  src/util/noncopyable.h  src/CoroutineLibrary/ioscheduler.h
-	$(CXX) $(CXXFLAGS) -c  src/server/tcp_server.cc
-
-
-
-address.o : util/endian.h
-	$(CXX) $(CXXFLAGS) -c util/address.cc
-
-config.o :
-	$(CXX) $(CXXFLAGS) -c util/config.cpp
-
-socket.o : util/address.h  util/noncopyable.h
-	$(CXX) $(CXXFLAGS) -c util/socket.cc
-
-
-
-
-# 清理目标文件
 .PHONY: clean
 clean:
-# 删除生成的可执行文件和目标文件
-	rm -f bin/CoroutineServer $(objects)
-# 删除build目录下所有子目录下的.o文件
-	rm -f build/**/*.o
+	rm -rf $(BUILD_DIR)
+	rm -rf $(BIN_DIR)

@@ -4,6 +4,8 @@
 #include "../util/gateway_constants.h"
 #include "../util/jwt_utils.h"
 #include "../util/jwt_cache.h"
+#include <muduo/base/Logging.h>
+#include "../util/config.h"
 
 #include <algorithm>
 #include <ctime>
@@ -73,6 +75,9 @@ public:
             if (h == std::string::npos) {
                 status = GatewayConst::HttpStatus::UNAUTHORIZED;
                 body = "unauthorized\n";
+                if (Config::get_instance()->get_close_log() == 0) {
+                    LOG_INFO << "auth miss Authorization, path=" << ctx.path << " from " << ctx.client_address;
+                }
                 return false;
             }
             size_t end = headers.find("\r\n", h);
@@ -89,18 +94,27 @@ public:
             }
             int64_t now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             if (JwtCache::instance().is_valid_cached(token, now)) {
+                if (Config::get_instance()->get_close_log() == 0) {
+                    LOG_INFO << "auth cache ok, path=" << ctx.path;
+                }
                 return true;
             }
             std::string err;
             if (!jwt::verify_hs256(token, cfg.jwt_secret(), cfg.jwt_issuer(), cfg.jwt_audience(), err)) {
                 status = GatewayConst::HttpStatus::UNAUTHORIZED;
                 body = "unauthorized\n";
+                if (Config::get_instance()->get_close_log() == 0) {
+                    LOG_INFO << "auth fail(" << err << "), path=" << ctx.path << " from " << ctx.client_address;
+                }
                 return false;
             }
             int64_t exp = 0;
             jwt::get_exp(token, exp);
             if (exp > 0) {
                 JwtCache::instance().put_valid(token, exp);
+            }
+            if (Config::get_instance()->get_close_log() == 0) {
+                LOG_INFO << "auth ok, path=" << ctx.path;
             }
             return true;
         }
@@ -132,6 +146,9 @@ public:
         if (client_token != rc->required_token) {
             status = GatewayConst::HttpStatus::UNAUTHORIZED;
             body = "unauthorized\n";
+            if (Config::get_instance()->get_close_log() == 0) {
+                LOG_INFO << "route token mismatch, path=" << ctx.path << " from " << ctx.client_address;
+            }
             return false;
         }
         return true;

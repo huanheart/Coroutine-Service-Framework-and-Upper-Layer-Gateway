@@ -4,6 +4,7 @@
 #include "../CoroutineLibrary/ioscheduler.h"
 #include <string>
 #include <iostream>
+#include <muduo/base/Logging.h>
 
 class UpstreamEchoServer : public sylar::TcpServer {
 public:
@@ -21,6 +22,7 @@ public:
             request.append(buf, n);
             if (request.find("\r\n\r\n") != std::string::npos) break;
         }
+        LOG_INFO << "upstream recv bytes=" << request.size();
         if (request.empty()) { client->close(); return; }
         size_t eol = request.find("\r\n");
         std::string line = eol == std::string::npos ? request : request.substr(0, eol);
@@ -34,9 +36,11 @@ public:
                 version = line.substr(p2 + 1);
             }
         }
+        LOG_INFO << "upstream request " << method << " " << path << " " << version;
         if (method == "HEAD") {
             std::string headers = version + " 200 OK\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n";
             client->send(headers.data(), headers.size(), 0);
+            LOG_INFO << "upstream head ok";
             client->close();
             return;
         }
@@ -44,6 +48,7 @@ public:
         std::string headers = version + " 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n";
         std::string data = headers + body;
         client->send(data.data(), data.size(), 0);
+        LOG_INFO << "upstream send bytes=" << data.size();
         client->close();
     }
 };
@@ -63,6 +68,7 @@ int main() {
             s->start();
             servers.push_back(s);
             std::cout << "upstream listen " << p << std::endl;
+            LOG_INFO << "upstream listen " << p;
         }
     });
     return 0;
