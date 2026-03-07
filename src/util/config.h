@@ -23,9 +23,6 @@ public:
     int get_port()const {
         return PORT;
     }
-    int get_proxy() const {
-        return Proxy;
-    }
 
     int get_thread_num()const {
         return thread_num;
@@ -36,8 +33,6 @@ public:
 private:
     //端口号
     int PORT;
-    //默认选择nginx,固使用反向代理
-    int Proxy;
 
     //线程池内的线程数量
     int thread_num;

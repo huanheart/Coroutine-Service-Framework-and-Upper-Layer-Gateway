@@ -181,24 +181,58 @@ void gateway_conn::start_heartbeat(const std::string& key) {
     std::string path = GatewayConfig::instance().heartbeat_path();
     auto scheduler = sylar::IOManager::GetThis();
     if (!scheduler) return;
+    if (Config::get_instance()->get_close_log() == 0) {
+        LOG_INFO << "gateway heartbeat schedule key=" << key << " interval_ms=" << interval << " path=" << (path.empty() ? "/" : path);
+    }
     auto self = this;
     ent.timer = scheduler->addTimer(interval, [self, key, path]() {
         auto it2 = self->m_upstreams.find(key);
-        if (it2 == self->m_upstreams.end()) return;
+        if (it2 == self->m_upstreams.end()) {
+            if (Config::get_instance()->get_close_log() == 0) {
+                LOG_INFO << "gateway heartbeat skip key=" << key << " reason=no_entry";
+            }
+            self->start_heartbeat(key);
+            return;
+        }
         auto& e = it2->second;
-        if (!e.sock || !e.sock->isConnected()) return;
-        if (e.busy) return;
+        if (!e.sock || !e.sock->isConnected()) {
+            if (Config::get_instance()->get_close_log() == 0) {
+                LOG_INFO << "gateway heartbeat skip key=" << key << " reason=not_connected";
+            }
+            self->start_heartbeat(key);
+            return;
+        }
+        if (e.busy) {
+            if (Config::get_instance()->get_close_log() == 0) {
+                LOG_INFO << "gateway heartbeat skip key=" << key << " reason=busy";
+            }
+            self->start_heartbeat(key);
+            return;
+        }
         uint64_t now = (uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
-        if (now - e.last_used_ms < (uint64_t)GatewayConfig::instance().heartbeat_interval_ms()) return;
+        if (now - e.last_used_ms < (uint64_t)GatewayConfig::instance().heartbeat_interval_ms()) {
+            if (Config::get_instance()->get_close_log() == 0) {
+                LOG_INFO << "gateway heartbeat skip key=" << key << " reason=recently_used";
+            }
+            self->start_heartbeat(key);
+            return;
+        }
         std::string hb = "HEAD " + (path.empty() ? std::string("/") : path) + " HTTP/1.1\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n";
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway heartbeat send key=" << key << " path=" << (path.empty() ? "/" : path);
+        }
         e.busy = true;
         const char* data = hb.data();
         size_t left = hb.size();
         while (left > 0) {
             int n = e.sock->send(data, left, 0);
             if (n <= 0) {
+                if (Config::get_instance()->get_close_log() == 0) {
+                    LOG_INFO << "gateway heartbeat send failed key=" << key;
+                }
                 e.sock->close();
                 e.busy = false;
+                self->start_heartbeat(key);
                 return;
             }
             data += n;
@@ -206,7 +240,9 @@ void gateway_conn::start_heartbeat(const std::string& key) {
         }
         char buf[256];
         int n = e.sock->recv(buf, sizeof(buf), 0);
-        (void)n;
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway heartbeat recv key=" << key << " bytes=" << n;
+        }
         e.busy = false;
         e.last_used_ms = now;
         // reschedule next heartbeat

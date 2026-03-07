@@ -8,8 +8,6 @@ Config::Config() {
     thread_num = 8;
     //关闭日志,默认不关闭
     close_log = 0;
-    //默认选择使用nginx代理
-    Proxy=0;
 
 }
 //c++11以后局部懒汉不需要加锁
@@ -23,7 +21,7 @@ Config * Config::get_instance()
 void Config::parse_arg(int argc,char * argv[] )
 {
     int opt;
-    const char * str="p:l:m:o:t:c:a:n:";
+    const char * str="p:l:m:o:t:c:a:";
 
     while( (opt=getopt(argc,argv,str) )!=-1 )
     {
@@ -43,11 +41,6 @@ void Config::parse_arg(int argc,char * argv[] )
             case 'c':    //是否关闭日志
             {
                 close_log = atoi(optarg);
-                break;
-            }
-            case 'n':   //n表示是否用nginx反向代理，默认用，0表示用，1表示不用
-            {
-                Proxy=atoi(optarg);
                 break;
             }
             default:

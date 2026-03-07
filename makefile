@@ -1,9 +1,10 @@
 CXX := g++
 
-MUDUO := /usr/local/build/release-install-cpp11
+MUDUO_INCLUDE ?= /usr/include
+MUDUO_LIB ?= /usr/local/lib
 
-CXXFLAGS := -g -O0 -std=c++17 -D_XOPEN_SOURCE=700 -I$(MUDUO)/include
-LDFLAGS := -L$(MUDUO)/lib
+CXXFLAGS := -g -O0 -std=c++17 -D_XOPEN_SOURCE=700 -I$(MUDUO_INCLUDE)
+LDFLAGS := -L$(MUDUO_LIB)
 LIBS := -lmuduo_net -lmuduo_base -lssl -lcrypto -lpthread
 
 SRC_DIRS := src src/CoroutineLibrary src/server src/util src/gateway

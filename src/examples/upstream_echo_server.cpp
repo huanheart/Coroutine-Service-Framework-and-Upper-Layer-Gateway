@@ -15,41 +15,48 @@ public:
 
     void handleClient(std::shared_ptr<sylar::Socket> client) override {
         char buf[4096];
-        std::string request;
-        while (true) {
-            int n = client->recv(buf, sizeof(buf), 0);
-            if (n <= 0) break;
-            request.append(buf, n);
-            if (request.find("\r\n\r\n") != std::string::npos) break;
-        }
-        LOG_INFO << "upstream recv bytes=" << request.size();
-        if (request.empty()) { client->close(); return; }
-        size_t eol = request.find("\r\n");
-        std::string line = eol == std::string::npos ? request : request.substr(0, eol);
-        std::string method = "GET", path = "/", version = "HTTP/1.1";
+        std::string local_str;
         {
-            size_t p1 = line.find(' ');
-            size_t p2 = line.find(' ', p1 == std::string::npos ? 0 : p1 + 1);
-            if (p1 != std::string::npos && p2 != std::string::npos) {
-                method = line.substr(0, p1);
-                path = line.substr(p1 + 1, p2 - p1 - 1);
-                version = line.substr(p2 + 1);
-            }
+            auto local = client->getLocalAddress();
+            if (local) local_str = local->toString();
         }
-        LOG_INFO << "upstream request " << method << " " << path << " " << version;
-        if (method == "HEAD") {
-            std::string headers = version + " 200 OK\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n";
-            client->send(headers.data(), headers.size(), 0);
-            LOG_INFO << "upstream head ok";
+        while (true) {
+            std::string request;
+            while (true) {
+                int n = client->recv(buf, sizeof(buf), 0);
+                if (n <= 0) { client->close(); return; }
+                request.append(buf, n);
+                if (request.find("\r\n\r\n") != std::string::npos) break;
+            }
+            LOG_INFO << "upstream " << local_str << " recv bytes=" << request.size();
+            if (request.empty()) { client->close(); return; }
+            size_t eol = request.find("\r\n");
+            std::string line = eol == std::string::npos ? request : request.substr(0, eol);
+            std::string method = "GET", path = "/", version = "HTTP/1.1";
+            {
+                size_t p1 = line.find(' ');
+                size_t p2 = line.find(' ', p1 == std::string::npos ? 0 : p1 + 1);
+                if (p1 != std::string::npos && p2 != std::string::npos) {
+                    method = line.substr(0, p1);
+                    path = line.substr(p1 + 1, p2 - p1 - 1);
+                    version = line.substr(p2 + 1);
+                }
+            }
+            LOG_INFO << "upstream " << local_str << " request " << method << " " << path << " " << version;
+            if (method == "HEAD") {
+                std::string headers = version + " 200 OK\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n";
+                client->send(headers.data(), headers.size(), 0);
+                LOG_INFO << "upstream " << local_str << " head ok keep-alive";
+                continue;
+            }
+            std::string body = "echo " + path + "\n";
+            std::string headers = version + " 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n";
+            std::string data = headers + body;
+            client->send(data.data(), data.size(), 0);
+            LOG_INFO << "upstream " << local_str << " send bytes=" << data.size();
             client->close();
             return;
         }
-        std::string body = "echo " + path + "\n";
-        std::string headers = version + " 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n";
-        std::string data = headers + body;
-        client->send(data.data(), data.size(), 0);
-        LOG_INFO << "upstream send bytes=" << data.size();
-        client->close();
     }
 };
 

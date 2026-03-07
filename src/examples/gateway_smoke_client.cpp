@@ -136,6 +136,9 @@ int main(int argc, char** argv) {
     send_req("GET", "/__admin/metrics", "");
     std::cout << "token(len=" << token.size() << ")\n";
     send_req("GET", "/service1/echo", token);
+    //发送第二次,测试缓存是否命中
+    send_req("GET", "/service1/echo", token);
+    
     send_req("GET", "/service1/echo", "");
     send_req("GET", "/service1/echo", bad_secret_token);
     send_req("GET", "/service1/echo", bad_issuer_token);

@@ -10,7 +10,9 @@
 
 struct RouteConfig {
     std::string path_prefix;
+    //保留原始字符串地址(也方便人为观看)
     std::vector<std::string> targets;
+    //减少每次请求的解析开销
     std::vector<sylar::IPAddress::ptr> resolved_targets;
     bool exact = false;
     std::string required_token;
@@ -72,7 +74,9 @@ private:
         std::unique_ptr<TrieNode> children[256];
         const RouteConfig* route = nullptr;
     };
+    //字典树匹配
     std::unique_ptr<TrieNode> m_trie_root;
+    //用于精准匹配
     std::unordered_map<std::string, const RouteConfig*> m_exact_map;
     mutable std::mutex m_mutex;
 };
