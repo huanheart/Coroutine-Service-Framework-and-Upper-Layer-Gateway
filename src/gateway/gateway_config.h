@@ -47,7 +47,6 @@ public:
 private:
     GatewayConfig();
 
-    void init_default();
     void build_trie();
 
 private:

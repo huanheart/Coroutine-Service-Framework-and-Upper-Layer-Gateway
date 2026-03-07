@@ -4,8 +4,6 @@
 Config::Config() {
     //端口号默认9006
     PORT = 9006;
-    //数据库连接池数量,默认8
-    sql_num = 8;
     //线程池内的线程数量,默认8
     thread_num = 8;
     //关闭日志,默认不关闭
@@ -25,7 +23,7 @@ Config * Config::get_instance()
 void Config::parse_arg(int argc,char * argv[] )
 {
     int opt;
-    const char * str="p:l:m:o:s:t:c:a:n:";
+    const char * str="p:l:m:o:t:c:a:n:";
 
     while( (opt=getopt(argc,argv,str) )!=-1 )
     {
@@ -35,11 +33,6 @@ void Config::parse_arg(int argc,char * argv[] )
             {
                 //optarg 是一个指向当前选项参数的指针，通常用于处理带参数的选项。默认后台会更新这个东西
                 PORT = atoi(optarg);
-                break;
-            }
-            case 's':       //数据库连接数量
-            {
-                sql_num = atoi(optarg);
                 break;
             }
             case 't':  //线程数量

@@ -26,9 +26,7 @@ public:
     int get_proxy() const {
         return Proxy;
     }
-    int get_sql_num()const {
-        return sql_num;
-    }
+
     int get_thread_num()const {
         return thread_num;
     }
@@ -40,16 +38,12 @@ private:
     int PORT;
     //默认选择nginx,固使用反向代理
     int Proxy;
-    //数据库连接池数量
-    int sql_num;
 
     //线程池内的线程数量
     int thread_num;
 
     //是否关闭日志
     int close_log;
-
-
 
 };
 

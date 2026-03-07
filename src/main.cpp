@@ -25,7 +25,7 @@ void asyncOutput(const char * msg,int len)
 }
 
 
-void run(string user,string passwd,string database_name,int sql_num ,int port,int proxy)
+void run(int port,int proxy)
 {
 
     sylar::Address::ptr m_adress=sylar::Address::LookupAnyIPAddress("0.0.0.0:"+to_string(port) );
@@ -59,13 +59,11 @@ int main(int argc,char * argv[] )
     log.start();
     g_asyncLog = &log;
     muduo::Logger::setOutput(asyncOutput);
-    string user="root";
-    string passwd="123456";
-    string database_name="webserver";
+
     // worker.reset(new sylar::IOManager(1,false) );
     sylar::IOManager manager(Config::get_instance()->get_thread_num(),true);
     manager.scheduleLock([=]() {
-        run(user, passwd, database_name, Config::get_instance()->get_sql_num(), Config::get_instance()->get_port(), Config::get_instance()->get_proxy());
+        run(Config::get_instance()->get_port(), Config::get_instance()->get_proxy());
     });
 
     return 0;

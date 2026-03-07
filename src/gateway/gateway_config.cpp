@@ -9,7 +9,7 @@
 GatewayConfig& GatewayConfig::instance() {
     static GatewayConfig cfg;
     if (!cfg.m_inited) {
-        cfg.init_default();
+        throw std::runtime_error("GatewayConfig not inited");
     }
     return cfg;
 }
@@ -334,44 +334,6 @@ bool GatewayConfig::reload() {
     return load_from_file(m_config_path);
 }
 
-void GatewayConfig::init_default() {
-    if (m_inited) {
-        return;
-    }
-    RouteConfig r1;
-    r1.path_prefix = "/service1";
-    r1.targets.push_back("127.0.0.1:8001");
-    r1.targets.push_back("127.0.0.1:8002");
-    RouteConfig r2;
-    r2.path_prefix = "/";
-    r2.targets.push_back("127.0.0.1:8000");
-    r2.targets.push_back("127.0.0.1:8003");
-    r1.resolved_targets.clear();
-    for (auto& t : r1.targets) {
-        auto ip = sylar::Address::LookupAnyIPAddress(t);
-        if (ip) {
-            r1.resolved_targets.push_back(ip);
-        }
-    }
-    r2.resolved_targets.clear();
-    for (auto& t : r2.targets) {
-        auto ip = sylar::Address::LookupAnyIPAddress(t);
-        if (ip) {
-            r2.resolved_targets.push_back(ip);
-        }
-    }
-    {
-        std::lock_guard<std::mutex> lg(m_mutex);
-        m_routes.clear();
-        m_routes.push_back(r1);
-        m_routes.push_back(r2);
-        m_blacklist.clear();
-        m_max_qps = 0;
-        m_required_token.clear();
-        build_trie();
-        m_inited = true;
-    }
-}
 
 void GatewayConfig::build_trie() {
     m_trie_root.reset(new TrieNode());
