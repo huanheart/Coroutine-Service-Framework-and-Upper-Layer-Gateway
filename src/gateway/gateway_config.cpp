@@ -51,21 +51,6 @@ int GatewayConfig::timeout_recv_ms() const {
     return m_timeout_recv;
 }
 
-int GatewayConfig::heartbeat_interval_ms() const {
-    return m_heartbeat_interval;
-}
-
-const std::string& GatewayConfig::heartbeat_path() const {
-    return m_heartbeat_path;
-}
-
-bool GatewayConfig::heartbeat_enabled() const {
-    return m_heartbeat_enabled;
-}
-
-int GatewayConfig::idle_disconnect_ms() const {
-    return m_idle_disconnect_ms;
-}
 
 void GatewayConfig::set_config_path(const std::string& p) {
     std::lock_guard<std::mutex> lg(m_mutex);
@@ -133,10 +118,6 @@ bool GatewayConfig::load_from_file(const std::string& path) {
     int timeout_connect = m_timeout_connect;
     int timeout_send = m_timeout_send;
     int timeout_recv = m_timeout_recv;
-    int heartbeat_interval = m_heartbeat_interval;
-    std::string heartbeat_path = m_heartbeat_path;
-    bool heartbeat_enabled = m_heartbeat_enabled;
-    int idle_disconnect_ms = m_idle_disconnect_ms;
     bool jwt_enabled = m_jwt_enabled;
     std::string jwt_secret = m_jwt_secret;
     std::string jwt_issuer = m_jwt_issuer;
@@ -234,26 +215,6 @@ bool GatewayConfig::load_from_file(const std::string& path) {
             if (v > 0) {
                 timeout_recv = v;
             }
-        } else if (type == GatewayConst::CFG_HEARTBEAT_INTERVAL_MS) {
-            int v = 0;
-            ss >> v;
-            if (v > 0) {
-                heartbeat_interval = v;
-            }
-        } else if (type == GatewayConst::CFG_HEARTBEAT_PATH) {
-            std::string v;
-            ss >> v;
-            heartbeat_path = v;
-        } else if (type == GatewayConst::CFG_ENABLE_HEARTBEAT) {
-            std::string v;
-            ss >> v;
-            heartbeat_enabled = (v == "on" || v == "true" || v == "1");
-        } else if (type == GatewayConst::CFG_IDLE_DISCONNECT_MS) {
-            int v = 0;
-            ss >> v;
-            if (v > 0) {
-                idle_disconnect_ms = v;
-            }
         } else if (type == GatewayConst::CFG_JWT_ENABLED) {
             std::string v;
             ss >> v;
@@ -322,10 +283,6 @@ bool GatewayConfig::load_from_file(const std::string& path) {
         m_timeout_connect = timeout_connect;
         m_timeout_send = timeout_send;
         m_timeout_recv = timeout_recv;
-        m_heartbeat_interval = heartbeat_interval;
-        m_heartbeat_path = heartbeat_path;
-        m_heartbeat_enabled = heartbeat_enabled;
-        m_idle_disconnect_ms = idle_disconnect_ms;
         m_jwt_enabled = jwt_enabled;
         m_jwt_secret = jwt_secret;
         m_jwt_issuer = jwt_issuer;

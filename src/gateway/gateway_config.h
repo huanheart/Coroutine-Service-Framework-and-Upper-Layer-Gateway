@@ -30,10 +30,6 @@ public:
     int timeout_connect_ms() const;
     int timeout_send_ms() const;
     int timeout_recv_ms() const;
-    int heartbeat_interval_ms() const;
-    const std::string& heartbeat_path() const;
-    bool heartbeat_enabled() const;
-    int idle_disconnect_ms() const;
     void set_config_path(const std::string& p);
     const std::string& config_path() const;
     bool jwt_enabled() const;
@@ -63,10 +59,6 @@ private:
     int m_timeout_connect = 2000;
     int m_timeout_send = 2000;
     int m_timeout_recv = 2000;
-    int m_heartbeat_interval = 30000;
-    std::string m_heartbeat_path;
-    bool m_heartbeat_enabled = true;
-    int m_idle_disconnect_ms = 180000;
     bool m_jwt_enabled = false;
     std::string m_jwt_secret;
     std::string m_jwt_issuer;

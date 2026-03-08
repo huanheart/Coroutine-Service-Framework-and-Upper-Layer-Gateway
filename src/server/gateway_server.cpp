@@ -6,7 +6,6 @@
 #include "../gateway/gateway_filter_chain.h"
 #include "../gateway/gateway_metrics.h"
 #include "../gateway/gateway_config.h"
-#include "../gateway/gateway_health.h"
 #include "gateway_conn.h"
 #include <muduo/base/Logging.h>
 #include <unistd.h>
@@ -24,33 +23,24 @@ gateway_server::gateway_server(sylar::IOManager* worker,
     : sylar::TcpServer(worker, io_worker, accept_worker) {
     if (access("../../conf/gateway.conf", F_OK) == 0) {
         GatewayConfig::instance().set_config_path("../../conf/gateway.conf");
-        GatewayConfig::instance().load_from_file("../../conf/gateway.conf");
+        bool ok = GatewayConfig::instance().load_from_file("../../conf/gateway.conf");
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway config load ../../conf/gateway.conf ok=" << ok;
+        }
     } else if (access("../conf/gateway.conf", F_OK) == 0) {
         GatewayConfig::instance().set_config_path("../conf/gateway.conf");
-        GatewayConfig::instance().load_from_file("../conf/gateway.conf");
-    }
-    GatewayHealthManager::instance().start();
-    sylar::IOManager* scheduler = sylar::IOManager::GetThis();
-    if (scheduler) {
-        int prune_interval = GatewayConfig::instance().idle_disconnect_ms() / 2;
-        if (prune_interval <= 0) prune_interval = 1000;
-        m_idle_prune_timer = scheduler->addTimer(prune_interval, []() {
-            if (!g_conns) return;
-            for (int i = 0; i < GW_MAX_FD; ++i) {
-                g_conns[i].prune_idle_upstreams();
-            }
-        }, true);
+        bool ok = GatewayConfig::instance().load_from_file("../conf/gateway.conf");
         if (Config::get_instance()->get_close_log() == 0) {
-            LOG_INFO << "gateway global idle prune started interval_ms=" << prune_interval;
+            LOG_INFO << "gateway config load ../conf/gateway.conf ok=" << ok;
+        }
+    } else {
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "gateway config not found at ../conf or ../../conf";
         }
     }
 }
 
 gateway_server::~gateway_server() {
-    if (m_idle_prune_timer) {
-        m_idle_prune_timer->cancel();
-        m_idle_prune_timer.reset();
-    }
 }
 
 void gateway_server::handleClient(sylar::Socket::ptr client) {
@@ -75,5 +65,6 @@ void gateway_server::handleClient(sylar::Socket::ptr client) {
             break;
         }
     }
+    std::cout<<"gateway_server handleClient and close " << client->getSocket() << " now "<<std::endl;
     client->close();
 }

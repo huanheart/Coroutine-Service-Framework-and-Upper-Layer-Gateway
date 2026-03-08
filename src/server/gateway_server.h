@@ -14,8 +14,6 @@ public:
     ~gateway_server();
 
     void handleClient(std::shared_ptr<sylar::Socket> client) override;
-private:
-    std::shared_ptr<sylar::Timer> m_idle_prune_timer;
 };
 
 #endif

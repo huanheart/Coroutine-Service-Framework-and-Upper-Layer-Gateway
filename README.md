@@ -1,7 +1,7 @@
-# 基于ucontext和C++11实现的协程服务框架
+# 基于协程服务框架向上提供的网关服务
 
 ## 协程服务框架概述
-参考开源项目sylar：实现协程库以及高性能TCPServer，并且提供**长连接服务**,支持简单的http服务
+参考开源项目sylar：实现协程库以及高性能TCPServer，并且提供**长连接服务**,支持简单的HTTP、RPC、网关服务
 
 关于长连接的说明
 * 查看用户的活跃情况，若在指定时间内没有活跃，则再删除。
@@ -15,7 +15,6 @@
 * hook重新实现部分重要函数接口，利用epoll和定时机制做到阻塞调用异步化
 * 使用池化技术将**线程和协程结合**，实现高性能并发
 * 实现基于**内存池的缓存数据结构**
-* 使用**nginx作为反向代理**（可自行选择）.在nginx.conf中，**可限制最大流量以及最大并发处理数量，并且使用工厂模式进行管理**
 * 实现**网关路由、鉴权（JWT）、限流、心跳与长连接复用**
 
 ## 待扩展部分
@@ -27,44 +26,22 @@
 - [X] 实现简单的http服务
 - [X] 更改http_conn.cpp的Socket更改为封装的Socket，io函数为Socket类封装的io函数
 - [X] 实现提供简单的RPC服务,[详情请看](https://github.com/huanheart/RPCCoroutineServiceFramework)
-- [ ] gdb下进入视频页面后回退会出现管道破裂，但是普通运行并不会，找了好久找不到
-- [ ] 解决新new调度器赋值给accept_worker调度器将会整体段错误的情况,m_ioworker并不会出现这个情况
-- [ ] 不清楚为什么在http_server.cpp中while()上面初始化数据库连接给到user.mysql会服务器崩溃，即没出作用域会被置空，但是放在while里面就不会出错，很奇怪，目前操作是放在里面的。没有问题
-
+- [X] 实现提供简单的HTTP服务,[详情请看](https://github.com/huanheart/Lightweight-coroutine-service-framework)
 ## 运行环境要求
 
 * 乌班图 22.04
 * boost库（muduo库是基于boost库，固然需要有所依赖）
 * muduo库（因为有用到异步日志,对应muduo.zip在我的dockerinit有，可以直接执行build.sh，然后将对应内容拷贝到/usr/bin其余目录下）
-* nginx，具体参考:https://help.fanruan.com/finereport10.0/doc-view-2644.html
 * 有makefile , g++相关工具
 
 * 修改main.cpp中run函数的ip地址
     ```cpp
   //将对应192.168.15.128更改为服务器本身的ip地址
   sylar::Address::ptr m_adress=sylar::Address::LookupAnyIPAddress("192.168.15.128:"+to_string(port) );
-    ```
-* nginx :进入/usr/nginx/conf目录下，使用vim将nginx更改为如下
-    * 将location下目录全部更改为如下
-      ```cpp
-              location  / {
-              proxy_pass http://192.168.15.128:9006;          #改为CoroutineServer的ip地址以及端口号
-              proxy_http_version 1.1;                      #设置http版本，如果不设置那么将会出错（因为nginx默认发送http1.0请求，但是该CoroutineServer响应不了1.0请求
-              limit_conn addr 1;                           #用于设置最大并发数
-              #limit_rate  50;   #限制对应响应的速率，可以用50（默认表示50bit来限制）追求速度快也可以直接弄成1m
-              limit_conn_log_level warn;
-              proxy_set_header X-Forwarded-By "Nginx";   #将http标识头多加一个nginx标识，不加也会出错(根据该CoroutineServer逻辑可以看出来)
-  
-          }
-      ```
-        *  在keepalive_timeout 65; 下多加一句话
-        ```cpp
-        limit_conn_zone $binary_remote_addr zone=addr:5m;  #将其设置为5m的空间，其共享内存的名字为addr，此时其实就可以处理10几万的数量了
-        ```
 
 ## 个性化运行
 ```cpp
-./CoroutineServer [-p port] [-t thread_num] [-c close_log] [-n Proxy]
+./CoroutineServer [-p port] [-t thread_num] [-c close_log]
 ```
 * -p 自定义端口号
     * 默认9006
@@ -73,9 +50,6 @@
 * -c 是否开启日志系统，默认打开
     * 0,打开日志
     * 1,关闭日志
-* -n 选择是否启动反向代理,默认启动nginx,后续会加阿帕奇等中间服务器
-    * 0 启动nginx
-    * 1 不使用任何中间服务器
 
 ## 启动项目：
 * cd在项目目录下

@@ -6,7 +6,6 @@
 #include "../gateway/gateway_metrics.h"
 #include "../gateway/gateway_router.h"
 #include "../gateway/gateway_config.h"
-#include "../gateway/gateway_health.h"
 #include "../util/gateway_constants.h"
 #include <muduo/base/Logging.h>
 #include "../util/config.h"
@@ -28,35 +27,15 @@ void gateway_conn::init(sylar::Socket::ptr& client) {
         m_upstreams.clear();
     }
     m_oversize = false;
-    m_curr_upstream_key.clear();
 }
 
 static inline uint64_t now_ms() {
     return (uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
-void gateway_conn::prune_idle_entry(const std::string& key, gateway_conn::UpstreamEntry& ent) {
-    if (!ent.sock) return;
-    if (!ent.sock->isConnected()) return;
-    if (ent.busy) return;
-    int idle_ms = GatewayConfig::instance().idle_disconnect_ms();
-    uint64_t now = now_ms();
-    if (idle_ms <= 0) return;
-    uint64_t last_used = ent.last_used_ms;
-    uint64_t last_activity = GatewayHealthManager::instance().last_activity_ms(key);
-    bool local_idle = (last_used > 0) && (now > last_used) && (now - last_used >= (uint64_t)idle_ms);
-    bool remote_idle = (last_activity > 0) && (now > last_activity) && (now - last_activity >= (uint64_t)idle_ms);
-    if (local_idle || remote_idle) {
-        if (Config::get_instance()->get_close_log() == 0) {
-            LOG_INFO << "gateway idle disconnect upstream " << key
-                     << " local_idle=" << local_idle
-                     << " remote_idle=" << remote_idle
-                     << " idle_ms=" << idle_ms
-                     << " last_used_ms=" << last_used
-                     << " last_activity_ms=" << last_activity;
-        }
-        ent.sock->close();
-    }
+
+bool gateway_conn::has_client() const {
+    return m_client && m_client->isValid();
 }
 
 bool gateway_conn::read_once() {
@@ -166,9 +145,11 @@ void gateway_conn::send_simple_response(int status, const string& status_text, c
 }
 
 sylar::Socket::ptr gateway_conn::get_upstream_socket(const std::string& path) {
-    prune_idle_upstreams();
     sylar::Address::ptr addr = GatewayRouter::pick_upstream(path);
     if (!addr) {
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "route no match for path " << path;
+        }
         return nullptr;
     }
     std::string key = addr->toString();
@@ -177,19 +158,24 @@ sylar::Socket::ptr gateway_conn::get_upstream_socket(const std::string& path) {
     }
     auto it = m_upstreams.find(key);
     if (it != m_upstreams.end()) {
+        std::cout<<"use old connect"<<std::endl;
         auto& ent = it->second;
         if (ent.sock && ent.sock->isConnected()) {
-            m_curr_upstream_key = key;
-            ent.last_used_ms = now_ms();
             return ent.sock;
         }
     }
     sylar::Socket::ptr sock = sylar::Socket::CreateTCP(addr);
     if (!sock) {
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "create socket failed upstream " << key;
+        }
         return nullptr;
     }
     int cto = GatewayConfig::instance().timeout_connect_ms();
     if (!sock->connect(addr, cto)) {
+        if (Config::get_instance()->get_close_log() == 0) {
+            LOG_INFO << "connect upstream failed " << key << " cto_ms=" << cto;
+        }
         sock->close();
         return nullptr;
     }
@@ -197,26 +183,16 @@ sylar::Socket::ptr gateway_conn::get_upstream_socket(const std::string& path) {
     int rto = GatewayConfig::instance().timeout_recv_ms();
     sock->setSendTimeout(sto);
     sock->setRecvTimeout(rto);
-    int on = 1;
-    sock->setOption(SOL_SOCKET, SO_KEEPALIVE, on);
     UpstreamEntry ent;
     ent.sock = sock;
-    ent.last_used_ms = now_ms();
     m_upstreams[key] = ent;
-    m_curr_upstream_key = key;
+    if (Config::get_instance()->get_close_log() == 0) {
+        LOG_INFO << "connect upstream ok " << key << " cached";
+    }
     return sock;
 }
 
-void gateway_conn::prune_idle_upstreams() {
-    for (auto it = m_upstreams.begin(); it != m_upstreams.end(); ) {
-        prune_idle_entry(it->first, it->second);
-        if (!it->second.sock || !it->second.sock->isConnected()) {
-            it = m_upstreams.erase(it);
-        } else {
-            ++it;
-        }
-    }
-}
+ 
 
 bool gateway_conn::process() {
     string request = m_request;
@@ -236,7 +212,6 @@ bool gateway_conn::process() {
     if (Config::get_instance()->get_close_log() == 0) {
         LOG_INFO << "gateway request " << method << " " << path << " " << version;
     }
-    prune_idle_upstreams();
     if (path.rfind(GatewayConst::ADMIN_METRICS_PATH, 0) == 0) {
         string body = GatewayMetrics::instance().render_plain();
         if (Config::get_instance()->get_close_log() == 0) {
@@ -306,11 +281,6 @@ bool gateway_conn::process() {
     }
 
     {
-        auto it = m_upstreams.find(m_curr_upstream_key);
-        if (it != m_upstreams.end()) {
-            it->second.busy = true;
-            it->second.last_used_ms = now_ms();
-        }
         const char* buf = request.data();
         size_t left = request.size();
         size_t total = 0;
@@ -350,13 +320,7 @@ bool gateway_conn::process() {
         }
     }
 
-    {
-        auto it = m_upstreams.find(m_curr_upstream_key);
-        if (it != m_upstreams.end()) {
-            it->second.busy = false;
-            it->second.last_used_ms = now_ms();
-        }
-    }
+ 
     if (Config::get_instance()->get_close_log() == 0) {
         LOG_INFO << "gateway upstream recv bytes=" << total_up << " client send bytes=" << total_down;
     }

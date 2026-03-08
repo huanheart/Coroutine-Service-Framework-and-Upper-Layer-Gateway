@@ -15,7 +15,7 @@ public:
                        sylar::IOManager* accept_worker = sylar::IOManager::GetThis())
         : sylar::TcpServer(worker, io_worker, accept_worker) {}
 private:
-    std::atomic<uint64_t> m_last_activity_ms{0};
+ 
 
     void handleClient(std::shared_ptr<sylar::Socket> client) override {
         char buf[4096];
@@ -28,7 +28,11 @@ private:
             std::string request;
             while (true) {
                 int n = client->recv(buf, sizeof(buf), 0);
-                if (n <= 0) { client->close(); return; }
+                if (n <= 0) { 
+                    std::cout<<"upstream_server handleClient and close " << client->getSocket() << " now "<<std::endl;
+                    client->close(); 
+                    return; 
+                }
                 request.append(buf, n);
                 if (request.find("\r\n\r\n") != std::string::npos) break;
             }
@@ -47,22 +51,29 @@ private:
                 }
             }
             LOG_INFO << "upstream " << local_str << " request " << method << " " << path << " " << version;
-            if (method == "HEAD") {
-                uint64_t last = m_last_activity_ms.load(std::memory_order_relaxed);
-                std::string headers = version + " 200 OK\r\nConnection: keep-alive\r\nX-Last-Activity: " + std::to_string(last) + "\r\nContent-Length: 0\r\n\r\n";
-                client->send(headers.data(), headers.size(), 0);
-                LOG_INFO << "upstream " << local_str << " head ok keep-alive";
-                continue;
+            bool close_conn = false;
+            {
+                size_t hdr_start = eol == std::string::npos ? std::string::npos : eol + 2;
+                if (hdr_start != std::string::npos) {
+                    std::string headers_block = request.substr(hdr_start, request.find("\r\n\r\n") - hdr_start);
+                    std::string lower = headers_block;
+                    for (auto& c : lower) c = ::tolower(c);
+                    if (lower.find("connection: close") != std::string::npos) close_conn = true;
+                }
+                if (version == "HTTP/1.0") {
+                    close_conn = true;
+                }
             }
-            m_last_activity_ms.store((uint64_t) (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()),
-                                     std::memory_order_relaxed);
             std::string body = "echo " + path + "\n";
-            std::string headers = version + " 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n";
+            std::string headers = version + " 200 OK\r\nContent-Type: text/plain\r\nConnection: " + std::string(close_conn ? "close" : "keep-alive") + "\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n";
             std::string data = headers + body;
             client->send(data.data(), data.size(), 0);
             LOG_INFO << "upstream " << local_str << " send bytes=" << data.size();
-            client->close();
-            return;
+            if (close_conn) {
+                std::cout<<"upstream_server handleClient and close " << client->getSocket() << " now "<<std::endl;
+                client->close();
+                return;
+            }
         }
     }
 };

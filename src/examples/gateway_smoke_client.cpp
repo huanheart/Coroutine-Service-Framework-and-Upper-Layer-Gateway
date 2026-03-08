@@ -79,6 +79,7 @@ std::string build_req_with_body(const std::string& method, const std::string& pa
 int main(int argc, char** argv) {
     std::string gw = argc > 1 ? argv[1] : "127.0.0.1:9006";
     std::string conf = argc > 2 ? argv[2] : "../conf/gateway.conf";
+    int idle_seconds = argc > 3 ? std::strtol(argv[3], nullptr, 10) : 30;
     JwtConf jc = read_conf(conf);
     int64_t exp = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() + 300;
     std::string token = jwt::sign_hs256(jc.secret, jc.issuer, jc.audience, exp);
@@ -150,5 +151,21 @@ int main(int argc, char** argv) {
         send_req_body("POST", "/service1/echo", token, big);
     }
     send_req("GET", "/__admin/reload", "");
+    //用于测试服务端业务心跳是否正常
+    {
+        sylar::Address::ptr addr = sylar::Address::LookupAnyIPAddress(gw);
+        auto sock = sylar::Socket::CreateTCP(addr);
+        if (!sock->connect(addr, 2000)) {
+            std::cout << "connect gateway fail\n";
+        } else {
+            std::cout << "=== idle connection test " << gw << " seconds=" << idle_seconds << " ===\n";
+            for (int i = 0; i < idle_seconds; ++i) {
+                if (!sock->isConnected()) break;
+                sleep(1);
+            }
+            std::cout << "=== idle connection end ===\n";
+            sock->close();
+        }
+    }
     return 0;
 }
